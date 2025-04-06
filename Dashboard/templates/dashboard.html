@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WAF Security Dashboard</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chart.js/3.9.1/chart.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+    <style>
+        :root {
+            --primary-color: #5b7692;
+            --secondary-color: #00bcd4;
+            --accent-color: #3cd3e7;
+            --bg-color: #121212;
+            --text-color: #e0e0e0;
+            --card-bg-color: #1e1e1e;
+            --card-header-bg-color: #263238;
+            --table-header-bg-color: #f1faff;
+            --table-hover-bg-color: rgba(0, 188, 212, 0.1);
+            --border-color: #2e3b4e;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        .navbar {
+            background-color: var(--primary-color);
+            padding: 15px 20px;
+        }
+
+        .navbar-brand {
+            color: white;
+            font-weight: bold;
+            font-size: 1.4rem;
+        }
+
+        .main-content {
+            padding: 40px 20px;
+        }
+
+        .dashboard-card {
+            border-radius: 12px;
+            background-color: var(--card-bg-color);
+            margin-bottom: 30px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            border: 1px solid var(--border-color);
+        }
+
+        .dashboard-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+        }
+
+        .card-header {
+            background-color: var(--card-header-bg-color);
+            color: #ffffff;
+            border-radius: 12px 12px 0 0 !important;
+            padding: 15px 20px;
+            font-weight: bold;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .card-body {
+            padding: 20px;
+        }
+
+        .stats-card .card-body {
+            padding: 30px 20px;
+        }
+
+        .stat-value {
+            font-size: 2.5rem;
+            font-weight: bold;
+            color: var(--secondary-color);
+        }
+
+        .stat-label {
+            color: #90a4ae;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .stat-icon {
+            font-size: 2.5rem;
+            color: var(--accent-color);
+        }
+
+        .section-title {
+            font-size: 1.3rem;
+            color: #ffffff;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 8px;
+            margin-bottom: 16px;
+        }
+
+        .table-responsive {
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .attack-table {
+            width: 100%;
+            background-color: var(--card-bg-color);
+        }
+
+        .attack-table th {
+            background-color: var(--table-header-bg-color);
+            color: var(--text-color);
+            padding: 12px 16px;
+            font-weight: 600;
+            border-bottom: 2px solid var(--border-color);
+        }
+
+        .attack-table td {
+            padding: 12px 16px;
+            border-top: 1px solid var(--border-color);
+            color: #cfd8dc;
+        }
+
+        .attack-table tbody tr:hover {
+            background-color: var(--table-hover-bg-color);
+        }
+
+        .rounded-table {
+            border-collapse: separate;
+            border-spacing: 0;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .rounded-table thead tr:first-child th:first-child {
+            border-top-left-radius: 12px;
+        }
+
+        .rounded-table thead tr:first-child th:last-child {
+            border-top-right-radius: 12px;
+        }
+
+        .rounded-table tbody tr:last-child td:first-child {
+            border-bottom-left-radius: 12px;
+        }
+
+        .rounded-table tbody tr:last-child td:last-child {
+            border-bottom-right-radius: 12px;
+        }
+
+        .log-container {
+            background-color: var(--primary-color);
+            max-height: 300px;
+            overflow-y: auto;
+            border-radius: 10px;
+            padding: 15px;
+            font-family: 'Consolas', monospace;
+            font-size: 0.85rem;
+            color: var(--text-color);
+            border: 1px solid var(--border-color);
+        }
+
+        .log-line {
+            padding-bottom: 6px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .btn-refresh {
+            background-color: var(--secondary-color);
+            color: white;
+            border-radius: 50px;
+            padding: 8px 16px;
+            border: none;
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+        }
+
+        .btn-refresh:hover {
+            background-color: #00acc1;
+        }
+
+        #refresh-status {
+            font-size: 0.85rem;
+            color: #90a4ae;
+            margin-top: 10px;
+        }
+
+        #json-output {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation Bar -->
+    <nav class="navbar navbar-dark">
+        <div class="container">
+            <span class="navbar-brand mb-0">
+                <i class="fas fa-shield-alt me-2"></i>WAF Security Dashboard
+            </span>
+        </div>
+    </nav>
+
+    <div class="container main-content">
+        <!-- Stats Summary -->
+        <div class="row">
+            <div class="col-md-4">
+                <div class="dashboard-card stats-card">
+                    <div class="card-header">Recent Attacks</div>
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <h2 class="stat-value" id="attack-count">{{ attacks|length if attacks else 0 }}</h2>
+                                <p class="stat-label">Last 24 hours</p>
+                            </div>
+                            <div class="stat-icon">
+                                <i class="fas fa-exclamation-triangle"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="dashboard-card stats-card">
+                    <div class="card-header">Attack Types</div>
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <h2 class="stat-value" id="attack-types-count">{{ attack_types|length if attack_types else 0 }}</h2>
+                                <p class="stat-label">Unique signatures</p>
+                            </div>
+                            <div class="stat-icon">
+                                <i class="fas fa-fingerprint"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="dashboard-card stats-card">
+                    <div class="card-header">Unique IPs</div>
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <h2 class="stat-value" id="unique-ips-count">{{ top_ips|length if top_ips else 0 }}</h2>
+                                <p class="stat-label">Attack sources</p>
+                            </div>
+                            <div class="stat-icon">
+                                <i class="fas fa-globe"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Attack Trends Chart -->
+        <h4 class="section-title mt-5 text-uppercase text-light">Attack Trends</h4>
+        <div class="dashboard-card">
+            <div class="card-body">
+                <canvas id="attackChart" height="120"></canvas>
+            </div>
+        </div>
+
+        <!-- Recent Attacks Table -->
+        <h4 class="section-title mt-5 text-uppercase text-light">Recent Attacks</h4>
+        <div class="dashboard-card shadow-sm">
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-dark table-striped" id="attacks-table">            
+                        <thead>
+                            <tr>
+                                <th class="ps-3 text-light">Time</th>
+                                <th class="text-light">IP Address</th>
+                                <th class="text-light">Attack Type</th>
+                                <th class="text-light">Request</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% if attacks and attacks|length > 0 %}
+                                {% for attack in attacks[:10] %}
+                                <tr class="attack-row">
+                                    <td class="ps-3 fw-bold text-info">{{ attack.timestamp }}</td>
+                                    <td class="text-warning">{{ attack.ip }}</td>
+                                    <td class="text-danger">{{ attack.attack_type }}</td>
+                                    <td class="text-info">{{ attack.request|truncate(40) }}</td>
+                                </tr>
+                                {% endfor %}
+                            {% else %}
+                                <tr>
+                                    <td colspan="4" class="text-center py-4 text-muted">No attack data available</td>
+                                </tr>
+                            {% endif %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="text-end mt-4">
+            <button class="btn btn-refresh" onclick="toggleJson()">Toggle API JSON</button>
+            <div id="refresh-status" class="mt-2">Last updated: {{ now }}</div>
+        </div>
+
+        <div id="json-output" class="log-container mt-3" style="display: none;"></div>
+
+        <!-- Raw Logs -->
+        <h4 class="section-title mt-5">Attack Logs</h4>
+        <div class="dashboard-card">
+            <div class="card-body">
+                <div class="log-container" id="log-container">
+                    {% if attack_logs %}
+                        {% for log in attack_logs %}
+                            <div class="log-line">{{ log }}</div>
+                        {% endfor %}
+                    {% else %}
+                        <div class="text-muted">No log data available</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Initialize variables
+        let attackChart = null;
+        let isJsonVisible = false;
+        
+        // Format dates consistently for better display
+        function formatDate(dateStr) {
+            if (!dateStr) return '';
+            const options = { year: 'numeric', month: 'short', day: 'numeric' };
+            return new Date(dateStr).toLocaleDateString(undefined, options);
+        }
+
+        // Initialize the main chart
+        function initChart() {
+            const ctx = document.getElementById('attackChart');
+            if (!ctx) return;
+            
+            // Get template data
+            const dates = {{ dates|tojson if dates else '[]' }};
+            const counts = {{ counts|tojson if counts else '[]' }};
+            
+            // Chart configuration
+            attackChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: dates.map(formatDate),
+                    datasets: [{
+                        label: 'Daily Attacks',
+                        data: counts,
+                        borderColor: '#3498db',
+                        backgroundColor: 'rgba(52, 152, 219, 0.2)',
+                        borderWidth: 3,
+                        pointBackgroundColor: '#3498db',
+                        pointBorderColor: '#fff',
+                        pointRadius: 4,
+                        pointHoverRadius: 6,
+                        tension: 0.3,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top',
+                            labels: {
+                                color: '#e0e0e0',
+                                font: { size: 14 }
+                            }
+                        },
+                        tooltip: {
+                            backgroundColor: 'rgba(44, 62, 80, 0.9)',
+                            titleFont: {
+                                size: 14,
+                                weight: 'bold'
+                            },
+                            bodyFont: { size: 13 },
+                            padding: 12,
+                            caretSize: 8,
+                            displayColors: false
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { 
+                                display: false,
+                                color: 'rgba(255, 255, 255, 0.1)'
+                            },
+                            ticks: {
+                                color: '#90a4ae',
+                                maxRotation: 45,
+                                minRotation: 45
+                            },
+                            title: {
+                                display: true,
+                                text: 'Date',
+                                color: '#e0e0e0',
+                                font: {
+                                    size: 14,
+                                    weight: 'bold'
+                                },
+                                padding: { top: 10, bottom: 0 }
+                            }
+                        },
+                        y: {
+                            grid: { 
+                                color: 'rgba(255, 255, 255, 0.1)' 
+                            },
+                            ticks: {
+                                color: '#90a4ae',
+                                precision: 0
+                            },
+                            title: {
+                                display: true,
+                                text: 'Number of Attacks',
+                                color: '#e0e0e0',
+                                font: {
+                                    size: 14,
+                                    weight: 'bold'
+                                }
+                            },
+                            beginAtZero: true
+                        }
+                    },
+                    interaction: {
+                        intersect: false,
+                        mode: 'index'
+                    },
+                    animation: {
+                        duration: 1000,
+                        easing: 'easeOutQuart'
+                    }
+                }
+            });
+        }
+        
+        // Update the attacks table with new data
+        function updateAttackTable(attacks) {
+            if (!attacks || !attacks.length) return;
+            
+            const tableBody = document.querySelector('#attacks-table tbody');
+            if (!tableBody) return;
+            
+            let tableContent = '';
+            attacks.slice(0, 10).forEach(attack => {
+                const request = attack.request || '';
+                const displayRequest = request.length > 40 ? request.substring(0, 40) + '...' : request;
+                
+                tableContent += `
+                <tr class="attack-row">
+                    <td class="ps-3 fw-bold text-info">${attack.timestamp}</td>
+                    <td class="text-warning">${attack.ip}</td>
+                    <td class="text-danger">${attack.attack_type}</td>
+                    <td class="text-info">${displayRequest}</td>
+                </tr>`;
+            });
+            
+            tableBody.innerHTML = tableContent;
+        }
+        
+        // Fetch updates from the API and update the dashboard
+        function fetchUpdates() {
+            fetch('/api/updates')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`Network error: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    // Update chart if it exists and data is valid
+                    if (attackChart && data.stats && data.stats.dates && data.stats.counts) {
+                        attackChart.data.labels = data.stats.dates.map(formatDate);
+                        attackChart.data.datasets[0].data = data.stats.counts;
+                        attackChart.update();
+                    }
+                    
+                    // Update stats counters
+                    if (data.stats) {
+                        document.getElementById('attack-count').textContent = data.stats.attack_count || 0;
+                        document.getElementById('attack-types-count').textContent = data.stats.type_count || 0;
+                        document.getElementById('unique-ips-count').textContent = data.stats.ip_count || 0;
+                    }
+                    
+                    // Update attacks table
+                    if (data.attacks) {
+                        updateAttackTable(data.attacks);
+                    }
+                    
+                    // Update refresh timestamp
+                    document.getElementById('refresh-status').textContent = 'Last updated: ' + new Date().toLocaleTimeString();
+                    
+                    // Update JSON view if visible
+                    if (isJsonVisible) {
+                        document.getElementById('json-output').textContent = JSON.stringify(data, null, 2);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error updating dashboard:', error);
+                });
+        }
+        
+        // Toggle JSON display
+        function toggleJson() {
+            const output = document.getElementById('json-output');
+            
+            if (!isJsonVisible) {
+                fetch('/api/updates')
+                    .then(response => response.json())
+                    .then(data => {
+                        output.textContent = JSON.stringify(data, null, 2);
+                        output.style.display = 'block';
+                    })
+                    .catch(error => {
+                        output.textContent = `Failed to fetch JSON: ${error.message}`;
+                        output.style.display = 'block';
+                    });
+            } else {
+                output.style.display = 'none';
+            }
+            
+            isJsonVisible = !isJsonVisible;
+        }
+        
+        // Initialize dashboard when DOM is loaded
+        document.addEventListener('DOMContentLoaded', () => {
+            // Initialize chart
+            initChart();
+            
+            // Fetch updates immediately
+            fetchUpdates();
+            
+            // Set up periodic updates every 30 seconds
+            setInterval(fetchUpdates, 30000);
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WAF Backend</title>
+    <style>
+        /* Reset and base styles */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            text-align: center;
+            padding: 50px 20px;
+            background-color: #121212;
+            color: #e0e0e0;
+        }
+
+        h1 {
+            font-size: 3rem;
+            margin-bottom: 20px;
+            color: #ffffff;
+        }
+
+        .status {
+            margin: 30px auto;
+            padding: 25px;
+            max-width: 500px;
+            background: #1e1e1e;
+            border-left: 6px solid #4caf50;
+            border-radius: 10px;
+            color: #a5d6a7;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+            transition: transform 0.3s ease;
+        }
+
+        .status:hover {
+            transform: translateY(-3px);
+        }
+
+        .status h2 {
+            font-size: 1.8rem;
+            margin-bottom: 10px;
+            color: #81c784;
+        }
+
+        .status p {
+            font-size: 1.1rem;
+            margin: 5px 0;
+        }
+
+        .links {
+            margin-top: 40px;
+        }
+
+        .links a {
+            display: inline-block;
+            margin: 0 10px;
+            padding: 12px 25px;
+            background-color: #2196f3;
+            color: #fff;
+            text-decoration: none;
+            font-size: 1rem;
+            font-weight: bold;
+            border-radius: 8px;
+            transition: background-color 0.3s ease, transform 0.2s ease;
+        }
+
+        .links a:hover {
+            background-color: #0d8ae0;
+            transform: scale(1.05);
+        }
+
+        #current-time {
+            font-weight: bold;
+            color: #ffffff;
+        }
+    </style>
+</head>
+<body>
+    <h1>🛡️ WAF Backend Server</h1>
+
+    <div class="status">
+        <h2>Status: Online ✅</h2>
+        <p>The WAF security backend is fully operational and standing guard.</p>
+        <p>Current time: <span id="current-time"></span></p>
+    </div>
+
+    <div class="links">
+        <a href="/dashboard">View Dashboard</a>
+    </div>
+
+    <script>
+        // Display current time
+        function updateTime() {
+            const now = new Date();
+            document.getElementById('current-time').textContent = now.toLocaleString();
+        }
+        
+        updateTime();
+        setInterval(updateTime, 1000);
+    </script>
+</body>
+</html>
