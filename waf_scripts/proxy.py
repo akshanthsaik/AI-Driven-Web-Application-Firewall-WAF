@@ -7,9 +7,8 @@ import pandas as pd
 import logging
 import os
 import datetime
-import xgboost  # Required for proper model loading
+import xgboost
 
-# Configure paths with raw strings for Windows compatibility
 BASE_DIR = os.path.dirname(os.path.abspath(__file__)).replace('\\', '/')
 ROOT_DIR = os.path.dirname(BASE_DIR).replace('\\', '/')    
 BACKEND_DIR = os.path.join(ROOT_DIR, 'Backend').replace('\\', '/')
@@ -17,12 +16,10 @@ DB_PATH = os.path.join(BACKEND_DIR, 'waf.db').replace('\\', '/')
 MODEL_PATH = os.path.join(ROOT_DIR, 'models', 'waf_model_new.pkl').replace('\\', '/')
 LOGS_DIR = os.path.join(ROOT_DIR, 'logs').replace('\\', '/')
 
-# Ensure directories exist
 os.makedirs(LOGS_DIR, exist_ok=True)
 
-# Configure logging with UTF-8 encoding
 logging.basicConfig(
-    level=logging.DEBUG,  # Temporarily set to DEBUG for troubleshooting
+    level=logging.DEBUG,
     format="%(asctime)s - %(levelname)s - %(message)s",
     handlers=[
         logging.FileHandler(os.path.join(LOGS_DIR, "access.log"), encoding='utf-8'),
@@ -42,52 +39,43 @@ print(f"Using model at: {MODEL_PATH}")
 print(f"Logging to: {LOGS_DIR}")
 
 def init_database():
-    with sqlite3.connect(DB_PATH) as conn:
-        conn.execute('''
-            CREATE TABLE IF NOT EXISTS attacks (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                ip TEXT NOT NULL,
-                request TEXT NOT NULL,
-                attack_type TEXT,
-                timestamp TEXT DEFAULT (datetime('now', 'localtime')),
-                confid REAL
-            )
-        ''')
-        conn.commit()
-        logging.info(f"Database initialized at {DB_PATH}")
-        
-        # Verify table structure
+    try:
+        conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
+
+        # Test startup write
+        conn.execute("INSERT INTO attacks (ip, request, attack_type, confid) VALUES ('127.0.0.1', 'STARTUP TEST', 'Startup', 1.0)")
+        conn.commit()
+        logging.info("Database write test successful")
+
+        # Check schema
         cursor.execute("PRAGMA table_info(attacks)")
         columns = [col[1] for col in cursor.fetchall()]
-        if 'confid' not in columns:
-            logging.error("Missing 'confid' column in attacks table")
-            conn.execute('ALTER TABLE attacks ADD COLUMN confid REAL')
-            conn.commit()
-        
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='attacks'")
-        if not cursor.fetchone():
-            logging.error("Table 'attacks' not found in database")
+        required = ['ip', 'request', 'attack_type', 'timestamp', 'confid']
+        missing = [col for col in required if col not in columns]
+        if missing:
+            raise Exception(f"Missing columns in DB: {missing}")
+    except Exception as e:
+        logging.critical(f"Database connection failed: {e}", exc_info=True)
+        os._exit(1)
 
 init_database()
 
 class WAFHandler(BaseHTTPRequestHandler):
     model = None
-    
+
     @classmethod
     def load_model(cls):
         if cls.model is None:
             try:
-                # Load model using XGBoost's native interface
-                cls.model = xgboost.Booster()
-                cls.model.load_model(MODEL_PATH)
+                cls.model = joblib.load(MODEL_PATH)
                 logging.info("XGBoost model loaded successfully")
             except Exception as e:
                 logging.error(f"Error loading model: {e}", exc_info=True)
+                cls.model = None
         return cls.model
 
     def log_attack_to_db(self, ip, request, attack_type, confidence):
-        """Log attack details to the database and attack.log."""
         try:
             timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             with sqlite3.connect(DB_PATH) as conn:
@@ -96,37 +84,35 @@ class WAFHandler(BaseHTTPRequestHandler):
                     VALUES (?, ?, ?, ?, ?)
                 ''', (ip, request, attack_type, timestamp, confidence))
                 conn.commit()
-                
-                attack_log_entry = f"Attack detected: IP={ip}, Request={request}, Type={attack_type}, Confidence={confidence:.2f}"
-                attack_logger.warning(attack_log_entry)
-                logging.info(f"Logged attack: {attack_log_entry}")
-                
-                return True
+
+            msg = f"Attack detected: IP={ip}, Request={request}, Type={attack_type}, Confidence={confidence:.2f}"
+            attack_logger.warning(msg)
+            logging.info(f"Logged attack: {msg}")
+            return True
         except Exception as e:
-            logging.error(f"Database error: {str(e)}", exc_info=True)
+            logging.error(f"Database error: {e}", exc_info=True)
             return False
 
     def extract_features(self, path, headers):
         payload = urlparse(unquote(path)).query
         for header in ['User-Agent', 'Cookie', 'Referer']:
-            if header in headers:
-                payload += headers.get(header, '')
-        
-        return {
+            payload += headers.get(header, '')
+
+        features = {
             'length': len(payload),
             'num_semicolons': payload.count(';'),
-            'has_sql_keywords': int(any(
-                kw in payload.upper() for kw in ['SELECT', 'UNION', 'DROP', '1=1', "' OR '", '" OR "', '--']
-            )),
+            'has_sql_keywords': int(any(kw in payload.upper() for kw in ['SELECT', 'UNION', 'DROP', '1=1', "' OR '", '" OR "', '--'])),
             'num_special_chars': sum(c in "!@#$%^&*()+={}[]|\\:;\"'<>,?/" for c in payload),
             'has_http_methods': int(any(method in payload.upper() for method in ['GET', 'POST', 'PUT', 'DELETE']))
         }
 
+        logging.debug(f"Extracted features: {features}")
+        return features
+
     def do_GET(self):
         client_ip = self.client_address[0]
-        logging.info(f"Request from {client_ip}: {self.path}")
+        logging.info(f"Incoming request from {client_ip}: {self.path}")
 
-        # Whitelist handling
         whitelist = ["/safe-path?param=value", "/another-safe-test?example=1"]
         if self.path.startswith("/verify"):
             requested_path = self.path.split("path=")[-1]
@@ -136,36 +122,39 @@ class WAFHandler(BaseHTTPRequestHandler):
             return
 
         if self.path in whitelist:
+            logging.info("Request matches whitelist. Forwarding.")
             self.forward_request()
             return
 
-        # Load model if not loaded
         if not WAFHandler.model:
             WAFHandler.load_model()
 
         try:
             features = self.extract_features(self.path, self.headers)
             features_df = pd.DataFrame([features])
-            logging.debug(f"Features: {features}")
+            logging.debug(f"Features for model: {features_df}")
 
             if WAFHandler.model:
-                # Convert features to DMatrix for XGBoost
-                dmatrix = xgboost.DMatrix(features_df)
-                prediction = WAFHandler.model.predict(dmatrix)[0]
-                confidence = prediction  # For binary classification, probability is direct
-                
-                logging.info(f"Prediction: {prediction}, Confidence: {confidence:.2f}")
+                prediction_proba = WAFHandler.model.predict_proba(features_df)[0][1]
+                confidence = prediction_proba
 
-                if confidence > 0.5:  # Lowered threshold for testing
-                    attack_type = self.detect_attack_type(self.path)
-                    if self.log_attack_to_db(client_ip, self.path, attack_type, confidence):
-                        self.send_block_response()
-                        return
+                logging.info(f"Prediction Probability: {confidence:.4f}")
+
+            if confidence > 0.5:
+                attack_type = self.detect_attack_type(self.path)
+                if self.log_attack_to_db(client_ip, self.path, attack_type, confidence):
+                    self.send_block_response()
+                    return
+
+                else:
+                    logging.info("Request not flagged as attack (confidence below threshold).")
+            else:
+                logging.warning("Model not loaded. Cannot classify request.")
 
             self.forward_request()
 
         except Exception as e:
-            logging.error(f"Request error: {e}", exc_info=True)
+            logging.error(f"Error processing request: {e}", exc_info=True)
             self.send_response(500)
             self.end_headers()
             self.wfile.write(b"Internal Server Error")
@@ -208,7 +197,7 @@ class WAFHandler(BaseHTTPRequestHandler):
         self.send_header('Content-Type', 'text/html')
         self.end_headers()
         try:
-            with open("blocked.html", "rb") as f:
+            with open(os.path.join(BACKEND_DIR, "blocked.html"), "rb") as f:
                 self.wfile.write(f.read())
         except FileNotFoundError:
             self.wfile.write(b"Blocked by WAF")
