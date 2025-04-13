@@ -1,8 +1,9 @@
-from flask import Flask, render_template, jsonify
+from flask import Flask, render_template, jsonify, Response
 import sqlite3
 import pandas as pd
 import datetime
 import os
+import json
 
 app = Flask(__name__)
 
@@ -17,10 +18,12 @@ BACKEND_DIR = os.path.join(ROOT_DIR, 'Backend')
 DB_PATH = os.path.join(BACKEND_DIR, 'waf.db')               # /WAF/Backend/waf.db
 LOGS_DIR = os.path.join(ROOT_DIR, 'logs')                   # /WAF/logs
 
+
 # Route for Backend Status
 @app.route('/')
 def status():
     return render_template('index.html')
+
 
 # Dashboard Route
 @app.route('/dashboard')
@@ -31,7 +34,6 @@ def dashboard():
         conn.row_factory = sqlite3.Row
 
         # Fetch recent attack logs dynamically from the database
-
         attacks = pd.read_sql('SELECT * FROM attacks ORDER BY timestamp DESC LIMIT 50', conn)
 
         # Get daily stats for the last 30 days
@@ -93,18 +95,26 @@ def dashboard():
         conn.close()
 
         return render_template('dashboard.html',
-                           attacks=attacks.to_dict('records'),
-                           dates=stats['date'].tolist(),
-                           counts=stats['count'].astype(int).tolist(),
-                           attack_types=attack_types.to_dict('records'),
-                           top_ips=top_ips.to_dict('records'),
-                           attack_logs=attack_logs[-20:])
+                               attacks=attacks.to_dict('records'),
+                               dates=stats['date'].tolist(),
+                               counts=stats['count'].astype(int).tolist(),
+                               attack_types=attack_types.to_dict('records'),
+                               top_ips=top_ips.to_dict('records'),
+                               attack_logs=attack_logs[-20:])
 
     except Exception as e:
         print(f"Dashboard error: {e}")
         return f"Error loading dashboard data: {str(e)}", 500
 
-# Polling Endpoint for Dynamic Updates
+
+# Convert bytes to string function to handle SQLite Row data
+def convert_bytes(obj):
+    if isinstance(obj, bytes):
+        return obj.decode('utf-8', errors='replace')
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
+
+# API Endpoint for fetching updates
 @app.route('/api/updates')
 def get_updates():
     try:
@@ -127,13 +137,12 @@ def get_updates():
         '''
         stats = pd.read_sql(stats_query, conn, params=[thirty_days_ago])
 
-        # Fill missing dates with zeros if needed
+        # Fill missing dates with zeros
         if not stats.empty:
             date_range = pd.date_range(start=stats['date'].min(), end=datetime.datetime.now().strftime('%Y-%m-%d'))
             date_range_df = pd.DataFrame({'date': date_range.strftime('%Y-%m-%d')})
             stats = pd.merge(date_range_df, stats, on='date', how='left').fillna(0)
         else:
-            # Create empty dataframe with dates if no data
             today = datetime.datetime.now()
             date_range = pd.date_range(start=today - datetime.timedelta(days=30), end=today)
             stats = pd.DataFrame({
@@ -141,15 +150,15 @@ def get_updates():
                 'count': [0] * len(date_range)
             })
 
-        # Get attack types count
+        # Attack type stats
         attack_types = pd.read_sql('SELECT attack_type, COUNT(*) as count FROM attacks GROUP BY attack_type', conn)
 
-        # Get unique IPs count
+        # Unique IPs count
         unique_ips = pd.read_sql('SELECT COUNT(DISTINCT ip) as count FROM attacks', conn)
 
         conn.close()
 
-        return jsonify({
+        result = {
             'stats': {
                 'dates': stats['date'].tolist(),
                 'counts': stats['count'].astype(int).tolist(),
@@ -157,11 +166,21 @@ def get_updates():
                 'type_count': len(attack_types),
                 'ip_count': int(unique_ips['count'].iloc[0]) if not unique_ips.empty else 0
             },
-            'attacks': attacks.to_dict('records')
-        })
+            'attacks': attacks.applymap(
+                lambda x: x.decode('utf-8', errors='replace') if isinstance(x, bytes) else x
+            ).to_dict('records')
+        }
+
+        response = Response(json.dumps(result, default=convert_bytes), content_type='application/json')
+        response.cache_control.no_cache = True
+        response.cache_control.no_store = True
+        response.cache_control.must_revalidate = True
+        return Response(json.dumps(result, default=convert_bytes), content_type='application/json')
+
     except Exception as e:
         print(f"Error fetching updates: {e}")
         return jsonify({"error": f"Failed to fetch updates: {str(e)}"}), 500
+
 
 if __name__ == "__main__":
     app.run(host='localhost', port=5000, debug=True)

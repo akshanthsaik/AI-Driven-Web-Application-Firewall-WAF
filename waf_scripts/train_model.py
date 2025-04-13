@@ -1,117 +1,181 @@
+import os
+import logging
+import json
 import pandas as pd
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import train_test_split, cross_val_score, GridSearchCV
-from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score, accuracy_score
+from sklearn.model_selection import train_test_split, cross_val_score, StratifiedKFold
+from sklearn.metrics import (classification_report, confusion_matrix, 
+                            roc_auc_score, f1_score, accuracy_score, precision_recall_curve)
+from skopt import BayesSearchCV
+from imblearn.over_sampling import SMOTE
 import joblib
-import os
-from imblearn.over_sampling import SMOTE  # Handle class imbalance
+import shap
 import matplotlib.pyplot as plt
 
-print("🔄 Starting model training...")
+# Configuration
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
-# Load processed features and labels
-try:
-    X = pd.read_csv('data/processed/processed_features.csv')
-    y = pd.read_csv('data/processed/labels.csv')['label']  # Ensure correct column name
-    print(f"✅ Loaded data: {X.shape[0]} samples with {X.shape[1]} features")
-    print(f"✅ Label distribution: {y.value_counts().to_dict()}")
-except Exception as e:
-    print(f"❌ Error loading data: {e}")
-    exit(1)
+# Paths (hardcoded for consistency)
+DATA_DIR = 'data/processed'
+MODEL_DIR = 'models'
+FEATURES_FILE = os.path.join(DATA_DIR, 'processed_features.csv')
+LABELS_FILE = os.path.join(DATA_DIR, 'labels.csv')
+MODEL_PATH = os.path.join(MODEL_DIR, 'waf_model.pkl')
+FEATURE_IMPORTANCE_PLOT = os.path.join(MODEL_DIR, 'feature_importance.png')
+PRECISION_RECALL_PLOT = os.path.join(MODEL_DIR, 'precision_recall_curve.png')
 
-# Handle class imbalance using SMOTE
-print("🔄 Applying SMOTE to handle class imbalance...")
-smote = SMOTE(random_state=42)
-X_resampled, y_resampled = smote.fit_resample(X, y)
-print(f"✅ Resampled dataset: {X_resampled.shape[0]} samples (after SMOTE)")
+# Ensure directories exist
+os.makedirs(MODEL_DIR, exist_ok=True)
 
-# Train-test split
-print("🔄 Splitting data into training and test sets...")
-X_train, X_test, y_train, y_test = train_test_split(
-    X_resampled, y_resampled, test_size=0.2, random_state=42, stratify=y_resampled
-)
-print(f"✅ Training set: {X_train.shape[0]} samples")
-print(f"✅ Test set: {X_test.shape[0]} samples")
+# Constants
+RANDOM_STATE = 42
 
-# Hyperparameter tuning using GridSearchCV
-print("🔄 Performing hyperparameter tuning...")
-param_grid = {
-    'n_estimators': [100, 200, 300],
-    'max_depth': [10, 15, 20],
-    'min_samples_split': [2, 5],
-    'min_samples_leaf': [1, 2],
-    'max_features': ['sqrt', 'log2']
-}
-grid_search = GridSearchCV(
-    RandomForestClassifier(random_state=42, class_weight='balanced', n_jobs=-1),
-    param_grid,
-    cv=3,
-    scoring='accuracy',
-    verbose=1,
-)
-grid_search.fit(X_train, y_train)
-best_params = grid_search.best_params_
-print(f"✅ Best hyperparameters: {best_params}")
+def load_data():
+    """Load and validate processed dataset"""
+    try:
+        X = pd.read_csv(FEATURES_FILE)
+        y = pd.read_csv(LABELS_FILE)['label']
+        
+        # Validate data integrity
+        assert X.shape[0] == y.shape[0], "Feature/label count mismatch"
+        assert not X.isnull().any().any(), "NaN values in features"
+        
+        logger.info(f"✅ Loaded {X.shape[0]} samples with {X.shape[1]} features")
+        logger.info(f"Class distribution:\n{y.value_counts()}")
+        
+        return X, y
+    
+    except Exception as e:
+        logger.error(f"❌ Data loading failed: {str(e)}")
+        raise
 
-# Train Random Forest model with best parameters
-print("🔄 Training Random Forest model with optimized hyperparameters...")
-model = RandomForestClassifier(
-    n_estimators=best_params['n_estimators'],
-    max_depth=best_params['max_depth'],
-    min_samples_split=best_params['min_samples_split'],
-    min_samples_leaf=best_params['min_samples_leaf'],
-    max_features=best_params['max_features'],
-    random_state=42,
-    class_weight='balanced',
-    n_jobs=-1
-)
-model.fit(X_train, y_train)
-print("✅ Model training complete")
+def handle_imbalance(X, y):
+    """Apply SMOTE only if severe imbalance exists"""
+    class_ratio = y.value_counts().min() / y.value_counts().max()
+    if class_ratio < 0.3:
+        logger.info("Applying SMOTE for class imbalance...")
+        return SMOTE(random_state=RANDOM_STATE).fit_resample(X, y)
+    else:
+        logger.info("Class distribution acceptable, skipping SMOTE")
+        return X, y
 
-# Evaluate with cross-validation
-cv_scores = cross_val_score(model, X_resampled, y_resampled, cv=5)
-print(f"✅ Cross-validation scores: {cv_scores}")
-print(f"✅ Mean CV accuracy: {cv_scores.mean():.4f} ± {cv_scores.std():.4f}")
+def train_model(X_train, y_train):
+    """Bayesian-optimized RF training"""
+    param_space = {
+        'n_estimators': (100, 500),
+        'max_depth': [10, 20, 30, None],
+        'min_samples_split': (2, 10),
+        'min_samples_leaf': (1, 4),
+        'max_features': ['sqrt', 'log2']
+    }
+    
+    model = BayesSearchCV(
+        estimator=RandomForestClassifier(
+            class_weight='balanced',
+            random_state=RANDOM_STATE,
+            n_jobs=-1
+        ),
+        search_spaces=param_space,
+        n_iter=50,
+        scoring='roc_auc',
+        cv=StratifiedKFold(n_splits=3),
+        random_state=RANDOM_STATE,
+        verbose=2
+    )
+    
+    logger.info("🚀 Starting Bayesian hyperparameter optimization...")
+    model.fit(X_train, y_train)
+    
+    logger.info(f"✅ Best params: {model.best_params_}")
+    logger.info(f"Best CV AUC: {model.best_score_:.4f}")
+    
+    return model.best_estimator_
 
-# Evaluate on test set
-y_pred = model.predict(X_test)
-accuracy = accuracy_score(y_test, y_pred)
-roc_auc = roc_auc_score(y_test, model.predict_proba(X_test)[:, 1])
-print("\n📊 Test Set Evaluation:")
-print(f"Accuracy: {accuracy:.4f}")
-print(f"ROC-AUC Score: {roc_auc:.4f}")
-print("\n📊 Classification Report:")
-print(classification_report(y_test, y_pred))
+def evaluate_model(model, X_test, y_test):
+    """Comprehensive model evaluation"""
+    y_pred = model.predict(X_test)
+    y_proba = model.predict_proba(X_test)[:, 1]
+    
+    metrics = {
+        'accuracy': accuracy_score(y_test, y_pred),
+        'roc_auc': roc_auc_score(y_test, y_proba),
+        'f1': f1_score(y_test, y_pred),
+        'confusion_matrix': confusion_matrix(y_test, y_pred).tolist(),
+        'classification_report': classification_report(y_test, y_pred)
+    }
+    
+    # Precision-Recall curve
+    precision, recall, _ = precision_recall_curve(y_test, y_proba)
+    plt.figure()
+    plt.plot(recall, precision, marker='.')
+    plt.xlabel('Recall')
+    plt.ylabel('Precision')
+    plt.title('Precision-Recall Curve')
+    plt.savefig(PRECISION_RECALL_PLOT)
+    plt.close()
+    
+    return metrics
 
-print("\n📊 Confusion Matrix:")
-conf_matrix = confusion_matrix(y_test, y_pred)
-print(conf_matrix)
+def explain_model(model, X_test):
+    """SHAP feature explanations"""
+    try:
+        explainer = shap.TreeExplainer(model)
+        shap_values = explainer.shap_values(X_test)
+        
+        plt.figure()
+        shap.summary_plot(shap_values[1], X_test, show=False)
+        plt.savefig(FEATURE_IMPORTANCE_PLOT)
+        plt.close()
+        
+    except Exception as e:
+        logger.warning(f"⚠️ SHAP explanation failed: {str(e)}")
 
-# Feature importance analysis
-feature_importances = model.feature_importances_
-importance_df = pd.DataFrame({
-    'Feature': X.columns,
-    'Importance': feature_importances
-}).sort_values(by='Importance', ascending=False)
+def save_artifacts(model):
+    """Save the trained model"""
+    joblib.dump(model, MODEL_PATH)
+    logger.info(f"💾 Model saved to {MODEL_PATH}")
 
-print("\n📊 Feature Importances:")
-print(importance_df)
+def main():
+    logger.info("🚦 Starting WAF model training pipeline")
+    
+    try:
+        # Data pipeline
+        X, y = load_data()
+        X_resampled, y_resampled = handle_imbalance(X, y)
+        
+        # Train-test split
+        X_train, X_test, y_train, y_test = train_test_split(
+            X_resampled,
+            y_resampled,
+            test_size=0.2,
+            stratify=y_resampled,
+            random_state=RANDOM_STATE
+        )
+        
+        # Model training
+        model = train_model(X_train, y_train)
+        
+        # Evaluation
+        metrics = evaluate_model(model, X_test, y_test)
+        
+        logger.info(f"\n📊 Final Metrics:\n"
+                    f"Accuracy: {metrics['accuracy']:.4f}\n"
+                    f"ROC-AUC: {metrics['roc_auc']:.4f}\n"
+                    f"F1-Score: {metrics['f1']:.4f}")
+        
+        # Explainability
+        explain_model(model, X_test)
+        
+        # Save artifacts
+        save_artifacts(model)
+        
+        logger.info("🎉 Training pipeline completed successfully")
+        
+    except Exception as e:
+        logger.error(f"🔥 Pipeline failed: {str(e)}")
+        
 
-# Plot feature importances
-plt.figure(figsize=(10, 6))
-plt.barh(importance_df['Feature'], importance_df['Importance'], color='skyblue')
-plt.title('Feature Importance')
-plt.xlabel('Importance')
-plt.ylabel('Features')
-plt.gca().invert_yaxis()
-plt.tight_layout()
-plt.savefig('models/feature_importance.png')
-plt.show()
-
-# Save model
-os.makedirs('models', exist_ok=True)
-model_path = 'models/waf_model.pkl'
-joblib.dump(model, model_path)
-print(f"✅ Model saved to {os.path.abspath(model_path)}")
-print("🔄 Model training process completed.")
+if __name__ == "__main__":
+    main()

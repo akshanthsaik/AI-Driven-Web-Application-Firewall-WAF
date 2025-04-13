@@ -7,13 +7,12 @@ import pandas as pd
 import logging
 import os
 import datetime
-import xgboost
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__)).replace('\\', '/')
 ROOT_DIR = os.path.dirname(BASE_DIR).replace('\\', '/')    
 BACKEND_DIR = os.path.join(ROOT_DIR, 'Backend').replace('\\', '/')
 DB_PATH = os.path.join(BACKEND_DIR, 'waf.db').replace('\\', '/')
-MODEL_PATH = os.path.join(ROOT_DIR, 'models', 'waf_model_new.pkl').replace('\\', '/')
+MODEL_PATH = os.path.join(ROOT_DIR, 'models', 'waf_model.pkl').replace('\\', '/')
 LOGS_DIR = os.path.join(ROOT_DIR, 'logs').replace('\\', '/')
 
 os.makedirs(LOGS_DIR, exist_ok=True)
@@ -43,10 +42,10 @@ def init_database():
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
 
-        # Test startup write
-        conn.execute("INSERT INTO attacks (ip, request, attack_type, confid) VALUES ('127.0.0.1', 'STARTUP TEST', 'Startup', 1.0)")
-        conn.commit()
-        logging.info("Database write test successful")
+        # # Test startup write
+        # conn.execute("INSERT INTO attacks (ip, request, attack_type, confid) VALUES ('127.0.0.1', 'STARTUP TEST', 'Startup', 1.0)")
+        # conn.commit()
+        # logging.info("Database write test successful")
 
         # Check schema
         cursor.execute("PRAGMA table_info(attacks)")
