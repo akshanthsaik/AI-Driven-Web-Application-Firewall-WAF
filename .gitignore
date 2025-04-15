@@ -3,6 +3,10 @@ venv/
 .venv/
 env/
 ENV/
+Include/
+Lib/
+Scripts/
+pyvenv.cfg
 
 # Python
 __pycache__/
@@ -56,7 +60,6 @@ Thumbs.db
 .ipynb_checkpoints
 
 # Optional: Data files
-# Uncomment if you want to ignore data files
 # *.csv
 # *.xlsx
 # *.json
