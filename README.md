@@ -171,9 +171,3 @@ The WAF's behaviour can be customized by modifying:
 - Only `data/data_loader.py` is tracked in git; all other data and model files are ignored for security and size reasons.
 - Update `requirements.txt` if you add new dependencies.
 - For development, use the provided virtual environment setup for consistency.
-
----
-
-## 📄 License
-
-[MIT License](LICENSE) (or your preferred license)
