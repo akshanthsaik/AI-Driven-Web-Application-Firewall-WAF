@@ -68,7 +68,7 @@ class WAFHandler(BaseHTTPRequestHandler):
         if cls.model is None:
             try:
                 cls.model = joblib.load(MODEL_PATH)
-                logging.info("XGBoost model loaded successfully")
+                logging.info("Model loaded successfully")
             except Exception as e:
                 logging.error(f"Error loading model: {e}", exc_info=True)
                 cls.model = None
