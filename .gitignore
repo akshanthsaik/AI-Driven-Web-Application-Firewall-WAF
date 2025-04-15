@@ -37,7 +37,8 @@ wheels/
 *.swo
 *~
 #data and models
-data/
+data/*
+!data/data_loader.py
 models/
 logs/
 # Logs and databases
