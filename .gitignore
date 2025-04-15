@@ -36,7 +36,10 @@ wheels/
 *.swp
 *.swo
 *~
-
+#data and models
+data/
+models/
+logs/
 # Logs and databases
 *.log
 *.sqlite
