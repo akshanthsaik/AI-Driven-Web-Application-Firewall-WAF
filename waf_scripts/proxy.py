@@ -160,7 +160,7 @@ class WAFHandler(BaseHTTPRequestHandler):
 
     def detect_attack_type(self, path):
         path_upper = path.upper()
-        if any(kw in path_upper for kw in ['SELECT', 'UNION', 'DROP TABLE', 'OR 1=1']):
+        if any(kw in path_upper for kw in ['SELECT', 'UNION', 'DROP TABLE', '1=1', "' OR '", '" OR "', '--']):
             return "SQL Injection"
         if any(kw in path_upper for kw in ['SCRIPT', '<', 'JAVASCRIPT:', 'ALERT(']):
             return "XSS"

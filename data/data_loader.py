@@ -1,20 +1,17 @@
 import pandas as pd
 
 def load_data():
-    # Load dataset
     try:
         df = pd.read_csv('data/raw/csic_database.csv', encoding='latin1')
-        print("✅ Dataset loaded successfully")
+        print(" Dataset loaded successfully")
     except Exception as e:
-        print(f"❌ Error loading dataset: {e}")
+        print(f" Error loading dataset: {e}")
         exit(1)
 
-    # Debugging information
-    print(f"📊 DataFrame shape: {df.shape}")
-    print(f"🔍 Column names: {df.columns}")
-    print(f"🏷️ Classification values: {df['classification'].unique()}")
+    print(f"DataFrame shape: {df.shape}")
+    print(f"Column names: {df.columns}")
+    print(f"Classification values: {df['classification'].unique()}")
 
-    # Handle missing values
     df.fillna({
         "content-type": "UNKNOWN",
         "length": 0,
@@ -22,10 +19,8 @@ def load_data():
         "Accept": "UNKNOWN"
     }, inplace=True)
 
-    # Convert classification to binary (0 = normal, 1 = attack)
     df['label'] = df['classification'].apply(lambda x: 1 if str(x).strip() != '0' else 0)
 
-    # Combine URL and content for payload analysis
     df['payload'] = df['URL'].fillna('') + df['content'].fillna('')
 
     # Feature extraction
@@ -43,20 +38,16 @@ def load_data():
 
     y = df['label']
 
-    # Handle missing values
     X.fillna(0, inplace=True)
     y.fillna(0, inplace=True)
 
-    # Save processed data
     X.to_csv('data/processed/processed_features.csv', index=False)
     y.to_csv('data/processed/labels.csv', index=False, header=True)
 
-    print(f"✅ Data successfully processed and saved!")
-    print(f"✅ Features shape: {X.shape}, Labels shape: {y.shape}")
-    print(f"✅ Positive examples (attacks): {sum(y == 1)}, Negative examples (normal): {sum(y == 0)}")
+    print(f"Data successfully processed and saved!")
+    print(f"Features shape: {X.shape}, Labels shape: {y.shape}")
+    print(f"Positive examples (attacks): {sum(y == 1)}, Negative examples (normal): {sum(y == 0)}")
 
-    return X, y  # Returning for direct use in training
-
-# Run the function if script is executed directly
+    return X, y 
 if __name__ == "__main__":
     load_data()

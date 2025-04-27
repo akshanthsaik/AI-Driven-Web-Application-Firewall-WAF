@@ -50,7 +50,7 @@ def setup_database():
     
     conn.commit()
     conn.close()
-    print("✅ Database initialized with improved rules")
+    print(" Database initialized with rules")
 
 if __name__ == "__main__":
     setup_database()

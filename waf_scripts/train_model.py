@@ -33,7 +33,6 @@ os.makedirs(MODEL_DIR, exist_ok=True)
 RANDOM_STATE = 42
 
 def load_data():
-    """Load and validate processed dataset"""
     try:
         X = pd.read_csv(FEATURES_FILE)
         y = pd.read_csv(LABELS_FILE)['label']
@@ -42,17 +41,16 @@ def load_data():
         assert X.shape[0] == y.shape[0], "Feature/label count mismatch"
         assert not X.isnull().any().any(), "NaN values in features"
         
-        logger.info(f"✅ Loaded {X.shape[0]} samples with {X.shape[1]} features")
+        logger.info(f"Loaded {X.shape[0]} samples with {X.shape[1]} features")
         logger.info(f"Class distribution:\n{y.value_counts()}")
         
         return X, y
     
     except Exception as e:
-        logger.error(f"❌ Data loading failed: {str(e)}")
+        logger.error(f"Data loading failed: {str(e)}")
         raise
 
 def handle_imbalance(X, y):
-    """Apply SMOTE only if severe imbalance exists"""
     class_ratio = y.value_counts().min() / y.value_counts().max()
     if class_ratio < 0.3:
         logger.info("Applying SMOTE for class imbalance...")
@@ -62,7 +60,6 @@ def handle_imbalance(X, y):
         return X, y
 
 def train_model(X_train, y_train):
-    """Bayesian-optimized RF training"""
     param_space = {
         'n_estimators': (100, 500),
         'max_depth': [10, 20, 30, None],
@@ -85,16 +82,15 @@ def train_model(X_train, y_train):
         verbose=2
     )
     
-    logger.info("🚀 Starting Bayesian hyperparameter optimization...")
+    logger.info(" Starting Bayesian hyperparameter optimization...")
     model.fit(X_train, y_train)
     
-    logger.info(f"✅ Best params: {model.best_params_}")
+    logger.info(f"Best params: {model.best_params_}")
     logger.info(f"Best CV AUC: {model.best_score_:.4f}")
     
     return model.best_estimator_
 
 def evaluate_model(model, X_test, y_test):
-    """Comprehensive model evaluation"""
     y_pred = model.predict(X_test)
     y_proba = model.predict_proba(X_test)[:, 1]
     
@@ -105,8 +101,7 @@ def evaluate_model(model, X_test, y_test):
         'confusion_matrix': confusion_matrix(y_test, y_pred).tolist(),
         'classification_report': classification_report(y_test, y_pred)
     }
-    
-    # Precision-Recall curve
+
     precision, recall, _ = precision_recall_curve(y_test, y_proba)
     plt.figure()
     plt.plot(recall, precision, marker='.')
@@ -119,7 +114,6 @@ def evaluate_model(model, X_test, y_test):
     return metrics
 
 def explain_model(model, X_test):
-    """SHAP feature explanations"""
     try:
         explainer = shap.TreeExplainer(model)
         shap_values = explainer.shap_values(X_test)
@@ -130,15 +124,14 @@ def explain_model(model, X_test):
         plt.close()
         
     except Exception as e:
-        logger.warning(f"⚠️ SHAP explanation failed: {str(e)}")
+        logger.warning(f" SHAP explanation failed: {str(e)}")
 
 def save_artifacts(model):
-    """Save the trained model"""
     joblib.dump(model, MODEL_PATH)
-    logger.info(f"💾 Model saved to {MODEL_PATH}")
+    logger.info(f" Model saved to {MODEL_PATH}")
 
 def main():
-    logger.info("🚦 Starting WAF model training pipeline")
+    logger.info(" Starting WAF model training pipeline")
     
     try:
         # Data pipeline
@@ -160,22 +153,18 @@ def main():
         # Evaluation
         metrics = evaluate_model(model, X_test, y_test)
         
-        logger.info(f"\n📊 Final Metrics:\n"
+        logger.info(f"\n Final Metrics:\n"
                     f"Accuracy: {metrics['accuracy']:.4f}\n"
                     f"ROC-AUC: {metrics['roc_auc']:.4f}\n"
                     f"F1-Score: {metrics['f1']:.4f}")
         
-        # Explainability
         explain_model(model, X_test)
-        
-        # Save artifacts
         save_artifacts(model)
         
-        logger.info("🎉 Training pipeline completed successfully")
+        logger.info(" Training pipeline completed successfully")
         
     except Exception as e:
-        logger.error(f"🔥 Pipeline failed: {str(e)}")
+        logger.error(f" Pipeline failed: {str(e)}")
         
-
 if __name__ == "__main__":
     main()

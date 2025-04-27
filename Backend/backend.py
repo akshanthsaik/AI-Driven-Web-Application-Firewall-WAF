@@ -31,10 +31,10 @@ class BackendHandler(BaseHTTPRequestHandler):
             else:
                 self.serve_html("blocked.html", status_code=403)
         except Exception as e:
-            print("🔴 Error contacting WAF:", e)
+            print("Error contacting WAF:", e)
             self.serve_html("error.html", status_code=500)
 
 if __name__ == "__main__":
     server = HTTPServer(('localhost', 8000), BackendHandler)
-    print("🚀 Backend server running on http://localhost:8000")
+    print("Backend server running on http://localhost:8000")
     server.serve_forever()
